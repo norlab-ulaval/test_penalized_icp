@@ -83,7 +83,9 @@ PM::DataPoints eigen_to_datapoints(const Eigen::MatrixXd& mat) {
 	PM::DataPoints::Labels features;
 	features.push_back(PM::DataPoints::Label("x", 1));
 	features.push_back(PM::DataPoints::Label("y", 1));
-	features.push_back(PM::DataPoints::Label("z", 1));
+	if (mat.rows() == 4) { // TODO make this cleaner, a loop over x, y, z
+	    features.push_back(PM::DataPoints::Label("z", 1));
+	}
 	features.push_back(PM::DataPoints::Label("pad", 1));
 
 	return PM::DataPoints(mat, features);
@@ -128,8 +130,8 @@ namespace Wrapper {
 				}
 
 				np::ndarray compute(const DataPoints& read_in,
-														const DataPoints& reference_in,
-														const np::ndarray& init_tf_nd) {
+                                    const DataPoints& reference_in,
+                                    const np::ndarray& init_tf_nd) {
 					auto init_tf = ndarray_to_eigen_matrix<double>(init_tf_nd);
 					const Eigen::MatrixXd tf = this->icp.compute(read_in.get_dp(), reference_in.get_dp(), init_tf);
 					return eigen_matrix_to_ndarray(tf);

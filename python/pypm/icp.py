@@ -54,8 +54,12 @@ class ICP:
             reference = DataPoints.from_numpy(reference)
         tf = self.icp.compute(read.raw_cpp_dp, reference.raw_cpp_dp, init_tf)
 
+        # FIXME: Bug in libpointmatcher the output matrix is 3x4 instead of 3x3 for 2D points
+        if tf.shape == (3, 4):
+            tf = tf[0:3, 0:3]
+
         if tf.shape not in [(3, 3), (4, 4)]:
             raise RuntimeError("You don't have a 3x3/4x4 transformations matrix. " 
-                               "You probably used points in a row-wise orientation, instead of colomns-wise.")
+                               "You probably used points in a row-wise orientation, instead of columns-wise.")
         return tf
 

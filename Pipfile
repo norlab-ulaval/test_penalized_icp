@@ -11,6 +11,7 @@ parse = "*"
 pandas = "*"
 "nose2" = "*"
 pytest = "*"
+matplotlib = "*"
 
 [dev-packages]
 

@@ -22,13 +22,13 @@ class DataPoints:
 
     @classmethod
     def from_numpy(cls, m: np.ndarray, make_homogeneous=True):
-        """Convert a numpy array to a DataPoints, it also add homogeneous.
-        For vectors must be format in a column wise format:
+        """Convert a numpy array to a DataPoints, it also convert it to homogeneous.
+        The vectors must be formatted in a column wise format:
         [[x1,x2, ..],
          [y1,y2, ..],
          [z1,z2, ..]]"""
-        if 0 < m.shape[1] and m.shape[0] < 3:
-            raise RuntimeError("The DataPoints must have a columns wise vector")
+        if m.shape[0] not in [2, 3] and 0 < m.shape[1]:
+            raise RuntimeError("The DataPoints must have a columns wise vector. With a shape (2, N) or (3, N).")
 
         if m.dtype != np.float64:
             m = m.astype(np.float64)
