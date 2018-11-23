@@ -1,6 +1,7 @@
 
 #include <exception>
 #include <sstream>
+#include <list>
 
 #include <boost/format.hpp>
 #include <boost/python.hpp>
@@ -9,6 +10,8 @@
 #include <Eigen/Core>
 
 #include <pointmatcher/PointMatcher.h>
+
+#include "in_memory_inspector.h"
 
 
 namespace p = boost::python;
@@ -93,13 +96,17 @@ PM::DataPoints eigen_to_datapoints(const Eigen::MatrixXd& mat) {
 
 namespace Wrapper {
 
+
 	class DataPoints {
 	public:
 		DataPoints(): dp() {}
 		DataPoints(const PM::DataPoints& p_dp): dp(p_dp) {}
 		np::ndarray to_numpy() {
-			std::cout << this->dp.features << std::endl;
 			return eigen_matrix_to_ndarray(this->dp.features);
+		}
+
+		const p::tuple get_shape() const {
+		    return p::make_tuple(this->dp.features.rows(), this->dp.features.cols());
 		}
 
 		const PM::DataPoints& get_dp() const {
@@ -110,32 +117,92 @@ namespace Wrapper {
 		PM::DataPoints dp;
 	};
 
+
 	DataPoints from_ndarray_to_datapoint(const np::ndarray& mat) {
 		return DataPoints(eigen_to_datapoints(ndarray_to_eigen_matrix<double>(mat)));
 	}
 
+	p::list from_iterations_stats_to_dict(const std::vector<InMemoryInspector<double>::IterationData> raw_iter_stats,
+                                          const Eigen::MatrixXd init_tf) {
+        p::list iter_stats;
+        for (auto& raw_iter_stat : raw_iter_stats) {
+            p::list iter_stat;
+
+            auto tf = eigen_matrix_to_ndarray(raw_iter_stat.tfParameters);
+            iter_stat.append(p::make_tuple("tf", tf));
+
+            iter_stats.append(p::dict(iter_stat));
+        }
+        return iter_stats;
+    }
+//std::vector<std::tuple<np::ndarray, np::ndarray>>&
+    PM::ErrorMinimizer::Penalties convert_penalties_to_eigen(const p::list& penalty_nd) {
+        PM::ErrorMinimizer::Penalties penalties;
+
+        // Convert python list to std list
+        p::stl_input_iterator<p::tuple> begin(penalty_nd), end;
+        auto penalties_list = std::list<p::tuple>(begin, end);
+
+        penalties.reserve(penalties_list.size());
+        for (auto& p : penalties_list) {
+            penalties.push_back(std::make_pair(ndarray_to_eigen_matrix<double>(p::extract<np::ndarray>(p[0])),
+                                               ndarray_to_eigen_matrix<double>(p::extract<np::ndarray>(p[1]))));
+        }
+        return penalties;
+    }
+
 	class ICP {
+        public:
+            ICP(): icp() {}
+
+            void set_default() {
+                this->icp.setDefault();
+            }
+
+            void load_from_yaml(std::string yaml_content) {
+                std::istringstream yaml_content_stream(yaml_content);
+                this->icp.loadFromYaml(yaml_content_stream);
+            }
+
+
+            p::tuple compute(const DataPoints& read_in,
+                                const DataPoints& reference_in,
+                                const np::ndarray& init_tf_nd,
+                                const p::list& penalty_nd,
+                                const bool dump_info) {
+                auto init_tf = ndarray_to_eigen_matrix<double>(init_tf_nd);
+                auto penalties = convert_penalties_to_eigen(penalty_nd);
+                if (dump_info) {
+                    if (this->icp.inspector && this->icp.inspector->className != "NullInspector") {
+                        throw std::runtime_error("An inspector has already been configured, can not add the InMemoryInspector. "
+                        "To dump info during the registration a InMemoryInspector is used, it overides the current inspector. "
+                        "Please change your inspector to a NullInspector.");
+                    }
+                    std::shared_ptr<InMemoryInspector<double>> inspector(new InMemoryInspector<double>());
+                    auto old_inspector = this->icp.inspector;
+                    this->icp.inspector = inspector;
+
+                    const auto tf = eigen_matrix_to_ndarray(this->icp.compute(read_in.get_dp(),
+                                                                              reference_in.get_dp(),
+                                                                              init_tf,
+                                                                              penalties));
+
+                    auto dump_info = from_iterations_stats_to_dict(inspector->iterationsStats, init_tf);
+                    this->icp.inspector.swap(old_inspector);
+                    return p::make_tuple(tf, dump_info);
+                } else {
+
+                    const auto tf = eigen_matrix_to_ndarray(this->icp.compute(read_in.get_dp(),
+                                                                              reference_in.get_dp(),
+                                                                              init_tf,
+                                                                              penalties));
+
+                    return p::make_tuple(tf, p::object());
+                }
+            }
 		private:
+
 			PM::ICP icp;
-			public:
-				ICP(): icp() {}
-
-				void set_default() {
-					this->icp.setDefault();
-				}
-
-				void load_from_yaml(std::string yaml_content) {
-					std::istringstream yaml_content_stream(yaml_content);
-					this->icp.loadFromYaml(yaml_content_stream);
-				}
-
-				np::ndarray compute(const DataPoints& read_in,
-                                    const DataPoints& reference_in,
-                                    const np::ndarray& init_tf_nd) {
-					auto init_tf = ndarray_to_eigen_matrix<double>(init_tf_nd);
-					const Eigen::MatrixXd tf = this->icp.compute(read_in.get_dp(), reference_in.get_dp(), init_tf);
-					return eigen_matrix_to_ndarray(tf);
-			}
 	};
 
 }
@@ -152,5 +219,6 @@ BOOST_PYTHON_MODULE(pypm_core) {
 
 	p::class_<Wrapper::DataPoints>("DataPoints")
 					.def("to_numpy", &Wrapper::DataPoints::to_numpy)
+					.def("get_shape", &Wrapper::DataPoints::get_shape)
 					;
 }

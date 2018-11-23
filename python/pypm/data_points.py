@@ -16,6 +16,10 @@ class DataPoints:
     def numpy(self):
         return self.raw_cpp_dp.to_numpy()
 
+    @property
+    def shape(self):
+        return self.raw_cpp_dp.get_shape()
+
     @classmethod
     def from_list(cls, m: List[List[float]], make_homogeneous=True):
         return cls.from_numpy(np.array(m, dtype=np.float64), make_homogeneous=make_homogeneous)

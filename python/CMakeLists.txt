@@ -20,7 +20,7 @@ find_package(PythonLibs 3)
 
 message(STATUS ${Boost_INCLUDE_DIRS})
 
-add_library(pypm_bindings SHARED pypm/pypm_core.cpp)
+add_library(pypm_bindings SHARED pypm/pypm_core.cpp pypm/in_memory_inspector.cpp)
 target_include_directories(pypm_bindings PRIVATE
   ${PYTHON_INCLUDE_OVERRIDE}
   ${Boost_INCLUDE_DIRS}
