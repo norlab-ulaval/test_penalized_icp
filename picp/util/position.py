@@ -11,6 +11,10 @@ class Position:
     def __init__(self, x: float=0, y: float=0):
         self._array = np.array([x, y])
 
+    def rotate(self, angle_rad: float) -> 'Position':
+        return Position(self.x * m.cos(angle_rad) - self.y * m.sin(angle_rad),
+                        self.x * m.sin(angle_rad) + self.y * m.cos(angle_rad))
+
     @classmethod
     def from_array(cls, array: np.ndarray) -> 'Position':
         if array.size != 2:

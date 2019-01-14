@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Tuple
 
 import numpy as np
 import pypm.pypm_core as core
@@ -14,7 +14,25 @@ class DataPoints:
 
     @property
     def numpy(self):
-        return self.raw_cpp_dp.to_numpy()
+        return self.raw_cpp_dp.get_features()
+
+    @property
+    def descriptors(self):
+        return self.raw_cpp_dp.get_descriptors()
+
+    @property
+    def descriptors_by_labels(self) -> Dict[str, np.ndarray]:
+        des_by_label = {}
+        descriptors = self.descriptors
+        index = 0
+        for text, span in self.descriptor_labels:
+            des_by_label[text] = descriptors[index:index+span, :]
+            index += span
+        return des_by_label
+
+    @property
+    def descriptor_labels(self) -> List[Tuple[str, int]]:
+        return self.raw_cpp_dp.get_descriptor_labels()
 
     @property
     def shape(self):

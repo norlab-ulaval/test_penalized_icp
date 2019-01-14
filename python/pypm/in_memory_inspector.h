@@ -3,6 +3,7 @@
 
 #include <pointmatcher/PointMatcher.h>
 
+#include <experimental/optional>
 /**
  * Update 2018-11-08: The module have not been added to libpointmatcher for the time being.
  *
@@ -20,6 +21,7 @@ template<typename T>
 struct InMemoryInspector: public PointMatcher<T>::Inspector
 {
 public:
+
 	 typedef PointMatcherSupport::Parametrizable Parametrizable;
 	 typedef Parametrizable::Parameters Parameters;
 	 typedef Parametrizable::ParameterDoc ParameterDoc;
@@ -37,20 +39,36 @@ public:
 	{
 		return "Keep in memory statistics at each step.";
 	}
+	inline static const ParametersDoc availableParameters()
+		{
+			return {
+				{"dumpTf", "dump transformation at each iteration", "1"},
+				{"dumpReference", "dump the reference cloud at each iteration", "0"},
+				{"dumpReading", "dump the reading cloud at each iteration", "0"},
+				{"dumpMatches", "dump match links at each iteration", "0" },
+				{"dumpWeights", "dump outlier weight at each iteration", "0" },
+			};
+		}
 
-	struct IterationData {
-		TransformationParameters tfParameters;
+	struct Iteration {
+		std::experimental::optional<TransformationParameters> tfParameters;
+		std::experimental::optional<DataPoints> filteredReference;
+		std::experimental::optional<DataPoints> filteredRead;
+		std::experimental::optional<Matches> matches;
+		std::experimental::optional<OutlierWeights> outlierWeights;
 	};
 
-	std::vector<IterationData> iterationsStats;
+	bool dumpTf, dumpReference, dumpReading, dumpMatches, dumpWeights;
+
+	std::vector<Iteration> iterations;
 	std::map<std::string, std::vector<double>> stats;
 
-	InMemoryInspector() : Inspector("InMemoryInspector",  ParametersDoc(), Parameters()) {}
+	InMemoryInspector(const Parameters& params);
     // TODO: Add a way to enable/disable the dumping of each of those field
 	virtual void dumpIteration(const size_t iterationNumber,
                                const TransformationParameters& parameters,
                                const DataPoints& filteredReference,
-                               const DataPoints& reading,
+                               const DataPoints& filteredRead,
                                const Matches& matches,
                                const OutlierWeights& outlierWeights,
                                const TransformationCheckers& transformationCheckers);

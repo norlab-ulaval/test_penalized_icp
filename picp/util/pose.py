@@ -3,6 +3,7 @@
 from typing import Dict
 
 import numpy as np
+import math as m
 
 from picp.util.position import Position
 
@@ -24,6 +25,12 @@ class Pose:
     @classmethod
     def from_values(cls, x: float, y: float, orientation: float=0) -> 'Pose':
         return cls(Position(x, y), orientation)
+
+    @classmethod
+    def from_tf(cls, tf: np.ndarray):
+        return cls.from_values(tf[0, 2],  # x
+                               tf[1, 2],  # y
+                               np.arccos(tf[0, 0]) if 1.0 - tf[0, 0] > 1e-6 else 0.0)
 
     @property
     def x(self) -> float:
@@ -67,6 +74,12 @@ class Pose:
     def to_dict(self) -> Dict[str, float]:
         return {'x': self.x, 'y': self.y, 'orientation': self.orientation}
 
+    def to_tf(self) -> np.ndarray:
+        o = self.orientation
+        return np.array([[m.cos(o), -m.sin(o), self.x],
+                         [m.sin(o),  m.cos(o), self.y],
+                         [0,                0,      1]])
+
     def mirror_x(self):
         return Pose.from_values(-self.x, self.y, Util.geometry.wrap_to_pi(np.pi - self.orientation))
 
@@ -74,8 +87,11 @@ class Pose:
         assert(isinstance(other, Position))
         return Pose(self.position + other, self.orientation)
 
-    def __sub__(self, other: Position) -> 'Pose':
-        return self + (-other)
+    def __sub__(self, other: [Position, 'Pose']) -> 'Pose':
+        if isinstance(other, Pose):
+            return Pose.from_values(self.x - other.x, self.y - other.y, self.orientation - other.orientation)
+        else:
+            return self + (-other)
 
     def __eq__(self, other: 'Pose') -> bool:
         compare_angle = Util.geometry.compare_angle

@@ -27,8 +27,14 @@ class Penalty:
         tf[0:N, N] = trans_vec
         return cls(tf, cov)
 
+    @property
+    def translation(self) -> np.ndarray:
+        d = self.tf.shape[0]
+        return self.tf[0:d-1, d-1]
+
     def to_tuple(self):
         return self.tf, self.cov
+
 
 class ICP:
     """ Wrapper around libpointmatcher's Iterative Closest Point class"""
@@ -50,6 +56,8 @@ class ICP:
 
     def __init__(self):
         self.icp = core.ICP()
+        self._is_dump_enable = False
+        self.dump_config = {}
 
     def set_default(self):
         """Configure ICP with the defaults from libpointmatcher"""
@@ -67,27 +75,71 @@ class ICP:
         """ Load a configuration from a string in a yaml format"""
         self.icp.load_from_yaml(yaml_str)
 
+    def enable_dump_all(self):
+        self.enable_dump(tf=True,
+                         descriptors=True,
+                         matches=True,
+                         outlier_weight=True,
+                         filtered_ref=True,
+                         filtered_read=True)
+
+    def enable_dump(self, *, # Force the keyword argument
+                    tf: bool=True,
+                    matches: bool=False,
+                    outlier_weight: bool=False,
+                    filtered_ref: bool=False,
+                    filtered_read: bool=False):
+        dict_local = dict(locals())
+        args = ["tf", "matches", "outlier_weight", "filtered_ref", "filtered_read"]
+        self.dump_config = {arg: dict_local[arg] for arg in args if arg in dict_local and dict_local[arg]}
+        self._is_dump_enable = True
+
+    def disable_dump(self):
+        self._is_dump_enable = False
+
+    def compute_residual_function(self, reference: [np.ndarray, DataPoints],
+                                  mins: [list],
+                                  maxs: [list],
+                                  p_nb_samples_per_dim: [list] = 100) -> np.ndarray:
+        if isinstance(reference, np.ndarray):
+            reference = DataPoints.from_numpy(reference)
+
+        dim_ref = reference.shape[0] -1
+        assert dim_ref == len(mins) == len(maxs), "The mins and maxs must have same number of dimensions as the reference"
+
+        if isinstance(p_nb_samples_per_dim, int):
+            nb_samples_per_dim = [p_nb_samples_per_dim for _ in range(dim_ref)]
+        else:
+            nb_samples_per_dim = p_nb_samples_per_dim
+        return self.icp.compute_residual_function(reference.raw_cpp_dp,
+                                                  mins,
+                                                  maxs,
+                                                  nb_samples_per_dim)
+
+
     def compute(self,
                 read: [np.ndarray, DataPoints],
                 reference: [np.ndarray, DataPoints],
                 init_tf: Optional[np.ndarray]=None,
-                penalties: List[Penalty]=[]) -> np.ndarray:
-        tf, _ =  self._compute(read, reference, init_tf, penalties, dump_info=False)
-        return tf
-
-    def compute_with_dump_info(self,
-                read: [np.ndarray, DataPoints],
-                reference: [np.ndarray, DataPoints],
-                init_tf: Optional[np.ndarray]=None,
                 penalties: List[Penalty]=[]) -> Tuple[np.ndarray, List]:
-        return self._compute(read, reference, init_tf, penalties, dump_info=True)
+        """
+        Register the 'reading' point cloud against the 'reference'.
+        In the context of mapping reference is the map and the reading is the scan.
+
+        The point clouds are expected to have a 3xN or 2xN format, where N is the number of points.
+        :param read: Reading point cloud, the points that will be move.
+        :param reference: Reference point cloud.
+        :param init_tf: Initial transformation apply to the reading. The performance of ICP is directly correlated to the accuracy of this transformation
+        :param penalties: Penalties are priors from other sensor sources. They can guide the minimization.
+        :return: The first element of the tuple is the transformation results and the second is a list of the debugging info at each iteration
+        """
+        return  self._compute(read, reference, init_tf, penalties)
 
     def _compute(self,
                 read: [np.ndarray, DataPoints],
                 reference: [np.ndarray, DataPoints],
                 init_tf: Optional[np.ndarray]=None,
-                penalties: List[Penalty]=[],
-                dump_info: bool=False) -> Tuple[np.ndarray, List]:
+                penalties: List[Penalty]=[]) -> Tuple[np.ndarray, List]:
 
         if isinstance(read, np.ndarray):
             read = DataPoints.from_numpy(read)
@@ -110,10 +162,24 @@ class ICP:
         if isinstance(penalties, Penalty):
             penalties = [penalties]
         penalties_tuples = [p.to_tuple() for p in penalties]
-        tf, iter_stats = self.icp.compute(read.raw_cpp_dp, reference.raw_cpp_dp, init_tf, penalties_tuples, dump_info)
+        tf, iterations = self.icp.compute(read.raw_cpp_dp,
+                                          reference.raw_cpp_dp,
+                                          init_tf,
+                                          penalties_tuples,
+                                          self._is_dump_enable,
+                                          self.dump_config)
 
         if tf.shape not in [(3, 3), (4, 4)]:
             raise RuntimeError(f"You don't have a 3x3/4x4 transformations matrix, your is {tf.shape}. " 
                                "You probably used points in a row-wise orientation, instead of columns-wise.")
-        return tf, iter_stats
+        return tf, self._convert_iterations_dump(iterations)
 
+    def _convert_iterations_dump(self, iterations):
+        # I have not yet find a way to convert object from cpp to DataPoints with having to do the conversion twice
+        if iterations is None:
+            return None
+        for iter in iterations:
+            for key, value in iter.items():
+                if isinstance(value, core.DataPoints):
+                    iter[key] = DataPoints(value)
+        return iterations

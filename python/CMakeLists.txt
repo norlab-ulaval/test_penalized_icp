@@ -20,6 +20,11 @@ find_package(PythonLibs 3)
 
 message(STATUS ${Boost_INCLUDE_DIRS})
 
+# c++14 is needed for std::optional
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 add_library(pypm_bindings SHARED pypm/pypm_core.cpp pypm/in_memory_inspector.cpp)
 target_include_directories(pypm_bindings PRIVATE
   ${PYTHON_INCLUDE_OVERRIDE}

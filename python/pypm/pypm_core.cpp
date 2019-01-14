@@ -11,12 +11,17 @@
 
 #include <pointmatcher/PointMatcher.h>
 
+// Remove later on, only used for debug
+#include <Eigen/QR>
+#include <Eigen/Eigenvalues>
+
 #include "in_memory_inspector.h"
 
 
 namespace p = boost::python;
 namespace np = boost::python::numpy;
 
+namespace PMS = PointMatcherSupport;
 typedef PointMatcher<double> PM;
 
 // Fix size
@@ -101,9 +106,27 @@ namespace Wrapper {
 	public:
 		DataPoints(): dp() {}
 		DataPoints(const PM::DataPoints& p_dp): dp(p_dp) {}
-		np::ndarray to_numpy() {
+
+		np::ndarray get_features() {
 			return eigen_matrix_to_ndarray(this->dp.features);
 		}
+
+		np::ndarray get_descriptors() {
+			return eigen_matrix_to_ndarray(this->dp.descriptors);
+		}
+
+		p::list get_descriptor_labels() {
+		    p::list labels;
+            for (const PM::DataPoints::Label& l : this->dp.descriptorLabels) {
+                labels.append(p::make_tuple(l.text, l.span));
+            }
+
+			return labels;
+		}
+
+//		np::ndarray get_descriptor_labels() {
+//			return eigen_matrix_to_ndarray(this->dp.descriptorLabels);
+//		}
 
 		const p::tuple get_shape() const {
 		    return p::make_tuple(this->dp.features.rows(), this->dp.features.cols());
@@ -122,20 +145,56 @@ namespace Wrapper {
 		return DataPoints(eigen_to_datapoints(ndarray_to_eigen_matrix<double>(mat)));
 	}
 
-	p::list from_iterations_stats_to_dict(const std::vector<InMemoryInspector<double>::IterationData> raw_iter_stats,
-                                          const Eigen::MatrixXd init_tf) {
-        p::list iter_stats;
-        for (auto& raw_iter_stat : raw_iter_stats) {
-            p::list iter_stat;
+	p::list from_iterations_stats_to_dict(const std::vector<InMemoryInspector<double>::Iteration> raw_iterations) {
+        p::list iterations;
+        for (auto& raw_iteration : raw_iterations) {
+            p::list iter;
 
-            auto tf = eigen_matrix_to_ndarray(raw_iter_stat.tfParameters);
-            iter_stat.append(p::make_tuple("tf", tf));
+            if (raw_iteration.tfParameters) {
+                auto value = eigen_matrix_to_ndarray(raw_iteration.tfParameters.value());
+                iter.append(p::make_tuple("tf", value));
+            }
+            if (raw_iteration.filteredReference) {
+                auto value = DataPoints(raw_iteration.filteredReference.value());
+                iter.append(p::make_tuple("filtered_ref", value));
+            }
+            if (raw_iteration.filteredRead) {
+                auto value = DataPoints(raw_iteration.filteredRead.value());
+                iter.append(p::make_tuple("filtered_read", value));
+            }
+//            if (raw_iteration.matches) {
+//                auto value = eigen_matrix_to_ndarray(raw_iteration.matches.value());
+//                iter.append(p::make_tuple("matches", value));
+//            }
+            if (raw_iteration.outlierWeights) {
+                auto value = eigen_matrix_to_ndarray(raw_iteration.outlierWeights.value());
+                iter.append(p::make_tuple("outlier_weight", value));
+            }
 
-            iter_stats.append(p::dict(iter_stat));
+            iterations.append(p::dict(iter));
         }
-        return iter_stats;
+        return iterations;
     }
-//std::vector<std::tuple<np::ndarray, np::ndarray>>&
+
+    std::shared_ptr<InMemoryInspector<double>> inspector_factory(const p::dict dump_config) {
+        PMS::Parametrizable::Parameters params;
+        const std::map<std::string, std::string> params_name_mapping = {
+            {"tf", "dumpTf"},
+            {"matches", "dumpMatches"},
+            {"outlier_weight", "dumpWeights"},
+            {"filtered_ref", "dumpReference"},
+            {"filtered_read", "dumpReading"}
+        };
+        for (const auto& param_name: params_name_mapping) {
+            const std::string value = p::extract<bool>(dump_config.get(param_name.first)) ? "1" : "0";
+            params.insert(std::make_pair(param_name.second, value));
+        }
+        //std::cout << "Exist" << params_name_mapping << std::endl;
+        std::shared_ptr<InMemoryInspector<double>> inspector(new InMemoryInspector<double>(params));
+
+        return inspector;
+    }
+
     PM::ErrorMinimizer::Penalties convert_penalties_to_eigen(const p::list& penalty_nd) {
         PM::ErrorMinimizer::Penalties penalties;
 
@@ -164,21 +223,98 @@ namespace Wrapper {
                 this->icp.loadFromYaml(yaml_content_stream);
             }
 
+            np::ndarray compute_residual_function(const DataPoints& reference_in,
+                                                  const p::list mins,
+                                                  const p::list maxs,
+                                                  const p::list nb_samples) {
 
+	            PM::DataPoints reference(reference_in.get_dp());
+
+                if (false) {
+                    Eigen::MatrixXd point = Eigen::MatrixXd::Ones(3, 1);
+                    point(0, 0) = 0;
+                    point(1, 0) = 0;
+                    reference = eigen_to_datapoints(point);
+                    Eigen::MatrixXd oriC(2, 2);
+                    oriC(0, 0) = 0.001; oriC(0, 1) = 0;
+                    oriC(1, 0) = 0; oriC(1, 1) = 5;
+
+                    double th = 55 * M_PI / 180.0;
+                    Eigen::Matrix2d R(2, 2);
+                    R << cos(th), -sin(th),
+                         sin(th), +cos(th);
+
+
+                    Eigen::MatrixXd C = R * oriC * R.transpose();
+
+                    const Eigen::EigenSolver<PM::Matrix> solver(C);
+                    const PM::Vector eigenVal = solver.eigenvalues().real();
+                    const PM::Matrix eigenVec = solver.eigenvectors().real();
+		            const PM::Vector eigenVec_inVec = Eigen::Map<const PM::Vector>(eigenVec.data(), 2 * 2);
+
+	                reference.allocateDescriptor("eigVectors", 2 * 2);
+	                reference.allocateDescriptor("eigValues", 1 * 2);
+	                reference.getDescriptorViewByName("eigValues").col(0) = eigenVal;
+	                reference.getDescriptorViewByName("eigVectors").col(0) = eigenVec_inVec;
+                    std::cout << "oriC:" << std::endl << oriC << std::endl;
+                    std::cout << "C :" << std::endl << C  << std::endl;
+                    std::cout << "R :" << std::endl << R  << std::endl;
+                    std::cout << "eigenVal:" << std::endl << eigenVal << std::endl;
+                    std::cout << "eigenVec:" << std::endl << eigenVec << std::endl;
+                    std::cout << "eigenVec_inVec:" << std::endl << eigenVec_inVec << std::endl;
+
+                } else {
+                    this->icp.referenceDataPointsFilters.init();
+                    this->icp.referenceDataPointsFilters.apply(reference);
+                }
+
+                // Delete all points except the first one
+                if (false) {
+                    reference.features = reference.features.col(13);
+                    reference.descriptors = reference.descriptors.col(13);
+                }
+
+                this->icp.matcher->init(reference);
+
+                PM::DataPoints read_in = eigen_to_datapoints(Eigen::MatrixXd(3, 1));
+                const PM::OutlierWeights weight = Eigen::MatrixXd::Ones(1, 1);
+                // TODO: add support for more than 2 dimensions
+                int nb_samples_x = p::extract<int>(nb_samples[0]);
+                int nb_samples_y = p::extract<int>(nb_samples[1]);
+                const Eigen::VectorXd xs = Eigen::VectorXd::LinSpaced(nb_samples_x,
+                                                                      p::extract<float>(mins[0]),
+                                                                      p::extract<float>(maxs[0]));
+                const Eigen::VectorXd ys = Eigen::VectorXd::LinSpaced(nb_samples_y,
+                                                                      p::extract<float>(mins[1]),
+                                                                      p::extract<float>(maxs[1]));
+                p::list residuals;
+                for (size_t j = 0; j < nb_samples_y; ++j) {
+                    for (size_t i = 0; i < nb_samples_x; ++i) {
+                        read_in.features(0, 0) = xs(i);
+                        read_in.features(1, 0) = ys(j);
+                        read_in.features(2, 0) = 1;
+                        const PM::Matches matches(this->icp.matcher->findClosests(read_in));
+                        const double residual = this->icp.errorMinimizer->getResidualError(read_in, reference, weight, matches, {},  PM::Matrix());
+                        residuals.append(p::make_tuple(xs(i), ys(j), residual));
+                    }
+                }
+                return np::array(residuals);
+            }
             p::tuple compute(const DataPoints& read_in,
                                 const DataPoints& reference_in,
                                 const np::ndarray& init_tf_nd,
                                 const p::list& penalty_nd,
-                                const bool dump_info) {
+                                const bool dump_enable,
+                                const p::dict dump_config) {
                 auto init_tf = ndarray_to_eigen_matrix<double>(init_tf_nd);
                 auto penalties = convert_penalties_to_eigen(penalty_nd);
-                if (dump_info) {
+                if (dump_enable) {
                     if (this->icp.inspector && this->icp.inspector->className != "NullInspector") {
                         throw std::runtime_error("An inspector has already been configured, can not add the InMemoryInspector. "
                         "To dump info during the registration a InMemoryInspector is used, it overides the current inspector. "
                         "Please change your inspector to a NullInspector.");
                     }
-                    std::shared_ptr<InMemoryInspector<double>> inspector(new InMemoryInspector<double>());
+                    std::shared_ptr<InMemoryInspector<double>> inspector = inspector_factory(dump_config);
                     auto old_inspector = this->icp.inspector;
                     this->icp.inspector = inspector;
 
@@ -187,17 +323,16 @@ namespace Wrapper {
                                                                               init_tf,
                                                                               penalties));
 
-                    auto dump_info = from_iterations_stats_to_dict(inspector->iterationsStats, init_tf);
+                    auto dump_info = from_iterations_stats_to_dict(inspector->iterations);
                     this->icp.inspector.swap(old_inspector);
                     return p::make_tuple(tf, dump_info);
                 } else {
-
                     const auto tf = eigen_matrix_to_ndarray(this->icp.compute(read_in.get_dp(),
                                                                               reference_in.get_dp(),
                                                                               init_tf,
                                                                               penalties));
 
-                    return p::make_tuple(tf, p::object());
+                    return p::make_tuple(tf, p::object());  // p::object() == None for python
                 }
             }
 		private:
@@ -213,12 +348,16 @@ BOOST_PYTHON_MODULE(pypm_core) {
     .def("set_default", &Wrapper::ICP::set_default)
     .def("load_from_yaml", &Wrapper::ICP::load_from_yaml)
     .def("compute", &Wrapper::ICP::compute)
+    .def("compute_residual_function", &Wrapper::ICP::compute_residual_function)
     ;
 
   p::def("from_ndarray_to_datapoint", &Wrapper::from_ndarray_to_datapoint);
 
 	p::class_<Wrapper::DataPoints>("DataPoints")
-					.def("to_numpy", &Wrapper::DataPoints::to_numpy)
+					.def("get_features", &Wrapper::DataPoints::get_features)
+					.def("get_descriptors", &Wrapper::DataPoints::get_descriptors)
+					.def("get_descriptor_labels", &Wrapper::DataPoints::get_descriptor_labels)
+					//.def("get_descriptor_labels", &Wrapper::DataPoints::get_descriptor_labels)
 					.def("get_shape", &Wrapper::DataPoints::get_shape)
 					;
 }

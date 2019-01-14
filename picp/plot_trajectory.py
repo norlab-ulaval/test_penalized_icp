@@ -3,11 +3,11 @@ from collections import OrderedDict
 
 import numpy as np
 
-from picp.icp_sampling import icp_with_random_perturbation
+from picp.icp_sampling import icp_with_random_perturbation, icp_mapping_with_random_perturbation, icp_mapping
 from picp.reg_anim_plot import AnimatedRegistration
 from picp.simulator.maps import create_basic_hallway, from_ascii_art
 from picp.simulator.scan_generator import ScanGenerator
-from picp.util.geometry import generate_rot_mat
+from picp.util.geometry import generate_rot_mat, from_cov_pose_to_penalties
 from picp.util.pose import Pose
 from pypm.icp import ICP, Penalty
 
@@ -73,82 +73,91 @@ def icp_p_to_gaussian():
     conf["errorMinimizer"] = {"PointToGaussianErrorMinimizer": {}}
     return conf
 
+art = """XXXXX
+XXXXX
+XX...
+XX.XX
+XX.XX
+*..XX
+XXXXX"""
+
+art = """XXXXXXX
+XXXXXXX
+X3...2X
+X.XXX.X
+X.XX1.X
+.4*..XX
+XXXXXXX"""
 
 if __name__ == "__main__":
     origin = Pose()
-    orientation = np.deg2rad(55)
-    move = Pose(Position(0, 2).rotate(orientation), 0)
 
-    walls = create_basic_hallway(orientation)
+    # poses = [origin,
+    #          Pose(Position( 1, 0), 0),
+    #          Pose(Position( 2, 0), 0),
+    #          Pose(Position( 4, 0), 0),
+    #          Pose(Position( 5, 0), 0),
+    #          Pose(Position( 6, 0), 0),
+    #
+    #          Pose(Position( 6, 1), np.deg2rad(90)),
+    #          Pose(Position( 6, 4), np.deg2rad(90)),
+    #          Pose(Position( 6, 8), np.deg2rad(90)),
+    #          ]
 
+    walls, poses = from_ascii_art(art)
+    poses[0] = origin
     sg = ScanGenerator(walls, nb_beam=180)
-    ref = sg.generate(origin).transpose()
-    read = sg.generate(move).transpose()
-
-    init_tf = move.to_tf()
+    print("Generating map...", end='', flush=True)
+    scans = [sg.generate(p).transpose() for p in poses]
+    print("done!")
+    # init_tf = move.to_tf()
 
     icp = ICP()
     #icp.set_default()
     icp.load_from_dict(ICP.BASIC_CONFIG)
-    σ = 0.5
-    cov = np.diag([σ**2, σ**2, 0.0])
+    no_penalties = [[] for p in poses]
+    penalties_x = [from_cov_pose_to_penalties(p, np.array([[1, 0.00],
+                                                           [0, 1e-5]])) for p in poses]
+    penalties_y = [from_cov_pose_to_penalties(p, np.array([[1e-5, 0.00],
+                                                           [0, 1]])) for p in poses]
 
-    #avg_penalty = Position.from_list([0, 2]).array
-    # avg_penalty = move.to_array()[0:2]
-    avg_penalty = move.position.rotate(orientation).array
-    cov_penalty_x = Penalty(Pose(move.position).to_tf(), np.array([[1, 0.00],
-                                                      [0, 1e-5]]))
-    cov_penalty_y = Penalty(Pose(move.position).to_tf(), np.array([[1e-5, 0.00],
-                                                      [    0, 1]]))
-    cov_penalty_xy = Penalty(move.to_tf(), np.array([[0.5, 0.00],
-                                                       [    0, 0.5]]))
-
-    rot = generate_rot_mat(angle=orientation)
-    cov_penalty_diag_x = cov_penalty_x
-    cov_penalty_diag_x.cov = rot @ cov_penalty_diag_x.cov @ rot.transpose()
-    cov_penalty_diag_y = cov_penalty_y
-    cov_penalty_diag_y.cov = rot @ cov_penalty_diag_y.cov @ rot.transpose()
-    # experiments = [("Without penalty",            ICP.BASIC_CONFIG, []),
-    #                ("With penalty in x",  icp_config(), [cov_penalty_x]),
-    #                ("With penalty in y",  icp_config(), [cov_penalty_y]),
-    #                ("With penalty in xy", icp_config(), [cov_penalty_xy])
-    #                ]
-    # experiments = [("Without penalty", icp_plane_basic_config(), []),
-                   # ("Without penalty, with sensor noise weight", icp_plane_with_sensor_weight_config(), []),
-                   # ("With penalty in x", icp_plane_penalties_config(), [cov_penalty_x]),
-                   # ("With penalty in y",  icp_plane_penalties_config(), [cov_penalty_y]),
-                   # ("With penalty in xy", icp_plane_penalties_config(), [cov_penalty_xy])
-                   # ]
+    penalties_xy = [from_cov_pose_to_penalties(p, np.array([[1e-2, 0.00],
+                                                            [0, 1e-2]])) for p in poses]
     experiments = [
-                   # ("Without penalty, p2p", ICP.BASIC_CONFIG, []),
-                   # ("Without penalty, p2plane", icp_plane_basic_config(), []),
-                   # ("Without penalty, p2Gaussian", icp_p_to_gaussian(), []),
-                   ("With penalty in x", icp_p_to_gaussian(), [cov_penalty_diag_x]),
-                   # ("With penalty in y",  icp_p_to_gaussian(), [cov_penalty_diag_y]),
-                   # ("With penalty in xy", icp_p_to_gaussian(), [cov_penalty_xy])
-                   ]
+        ("P2Plane no penalty", icp_plane_basic_config(), no_penalties),
+        # ("P2Plane with penalty in y", icp_plane_penalties_config(), penalties_y),
+        # ("With penalty in x", icp_p_to_gaussian(), penalties_x),
+        ("P2Gaussian with penalty in y", icp_p_to_gaussian(), penalties_y),
+        ("With penalty in xy", icp_p_to_gaussian(), penalties_xy),
+    ]
 
+    σ = 0.1
+    σ_rot = np.deg2rad(0)
+    pertur_cov = np.diag([σ**2, σ**2, σ_rot**2])
     experiments_res = OrderedDict()
     for label, config, penalties in experiments:
-        print(label, "shoud have", len(penalties), "penalties")
         start = time.time()
         icp.load_from_dict(config)
-        _, data = icp_with_random_perturbation(icp, read, ref, init_tf, nb_sample=100, cov=cov, penalties=penalties)
-        experiments_res[label] = (data, penalties)
+        icp.enable_dump(tf=True)
+        trajectories = icp_mapping_with_random_perturbation(icp, scans, gt_tfs=poses, nb_sample=1, pertur_cov=pertur_cov, penalties=penalties)
+        experiments_res[label] = (trajectories, penalties)
         print(f"The test '{label}' tooks {time.time()-start:0.3f}s")
 
     # To extract the sensor noise I do one registration with a dump of the descriptors
     icp.load_from_dict(icp_covariance())
     icp.enable_dump(tf=True, filtered_ref=True, filtered_read=True)
-    _, dump = icp.compute(read, ref, init_tf)
+    steps = icp_mapping(icp, scans, gt_tfs=poses, update_map_with_gt=True)
+    pairwise_dump = [s[1] for s in steps]  # dump for each pair of scans
 
-    plotter = AnimatedRegistration("Test PointToGaussian", experiments_res, ref, read, origin, move, walls, σ, dump)
-    # plotter.init_animation()
-    plotter.plot_last_iter()
+    #, title, experiments, scans, gt_poses, walls, pairwise_dumps
+    plotter = AnimatedRegistration("Test PointToGaussian", experiments_res, scans, poses, walls, pairwise_dump)
+    plotter.init_animation()
+    # plotter.plot_iter(0)
+    # plotter.plot_last_iter()
 
     if False:
         print("Saving to gif...")
         plotter.save("reg.gif")
-    # plotter.start_animation()
+    plotter.start_animation()
 
 
