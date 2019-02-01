@@ -311,7 +311,7 @@ namespace Wrapper {
                 if (dump_enable) {
                     if (this->icp.inspector && this->icp.inspector->className != "NullInspector") {
                         throw std::runtime_error("An inspector has already been configured, can not add the InMemoryInspector. "
-                        "To dump info during the registration a InMemoryInspector is used, it overides the current inspector. "
+                        "To dump info during the registration a InMemoryInspector is used, it overrides the current inspector. "
                         "Please change your inspector to a NullInspector.");
                     }
                     std::shared_ptr<InMemoryInspector<double>> inspector = inspector_factory(dump_config);

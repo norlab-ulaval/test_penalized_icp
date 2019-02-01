@@ -21,7 +21,7 @@ def draw_elipse(ax, avg, cov, color, label=None):
     λ = λ[sort_indices]
     v = v[sort_indices]
     # The angle is the angle of the eigen vector with the largest eigen value
-    angle = np.rad2deg(np.arctan2(v[0, 1], v[0, 0]))
+    angle = np.rad2deg(np.arctan2(v[0, 1].real, v[0, 0].real))
     # angle = np.rad2deg(np.arccos(v[0, 0]))
     ell =  Ellipse(xy=avg,
                    width=2*sqrt(λ[0]), # λ[0] == σ²
@@ -50,11 +50,11 @@ class ExperimentationPlot:
 
     def generate_colors(self):
         nb_step = len(self.trajectories[0])
-        return [c for c, _ in zip(cycle(SCANS_ID_TO_COLOR), range(nb_step+1))]
+        return [c for c, _ in zip(cycle(SCANS_ID_TO_COLOR), range(nb_step))]
 
     def init(self):
         self.ax.clear()
-        nb_step = len(self.trajectories[0]) + 1
+        nb_step = len(self.trajectories[0])
         self.trajectories_plot = [self.ax.plot([], [], '-', c='black', alpha=0.5)[0] for _ in self.trajectories]
         self.trajectories_scatter = [self.ax.scatter([0] * nb_step, [0] * nb_step, c=self.generate_colors(), marker='o') for _ in self.trajectories]
 
@@ -70,7 +70,7 @@ class ExperimentationPlot:
         self.ax.set_title(self.label)
         self.ax.axis('equal')
         self.ax.set_xlim(-3.5, 3.5)
-        self.ax.set_ylim(-9, 9)
+        self.ax.set_ylim(-5, 5)
 
     @property
     def static_lines(self):
@@ -83,11 +83,12 @@ class ExperimentationPlot:
     def update(self, i):
         # Each sample is a trajectory
         for trajectory, plot, scatter in zip(self.trajectories, self.trajectories_plot, self.trajectories_scatter):
-            x = [0]
-            y = [0]
+            first_tf, _ = trajectory[0]
+            x = [first_tf.x]
+            y = [first_tf.y]
             c = self.generate_colors()
             # A trajectory is made of step (one step per pair of scan), which content iterations
-            for _, step in enumerate(trajectory):
+            for _, step in enumerate(trajectory[1:]):
                 final_tf, iters = step
                 max_iter_sample = len(iters)
                 iter = iters[min(max_iter_sample - 1, i)]  # A registration might end before the i-th iteration
@@ -124,7 +125,7 @@ class AnimatedRegistration:
         """
         self.max_iter = max([len(iters) for trajectories, penalties in experiments.values() for trajectory in trajectories for final_tf, iters in trajectory])
 
-        self.fig = plt.figure(figsize= (12, 8))
+        self.fig = plt.figure(figsize= (5* len(experiments), 6))
 
         self.exp_plots = [ExperimentationPlot(label, self.fig.add_subplot(1, len(experiments), i + 1), trajectories, penalties) for i, (label, (trajectories, penalties)) in enumerate(experiments.items())]
         # self.axis = [(label, self.fig.add_subplot(1, len(experiments), i + 1), exp[0], exp[1]) for i, (label, exp) in enumerate(experiments.items())]
@@ -149,7 +150,7 @@ class AnimatedRegistration:
         self.lines = []
         self.static_lines = []
         self.fig.tight_layout()
-        self.fig.subplots_adjust(top=0.80)
+        self.fig.subplots_adjust(top=0.85)
         for exp_plot in self.exp_plots:
             exp_plot.init()
             self.lines += exp_plot.lines
@@ -163,71 +164,11 @@ class AnimatedRegistration:
             # exp_plot.ax.legend(loc='upper left')
         return self.static_lines + self.lines
 
-    def init_old(self):
-        self.lines = []
-        self.arrows = []
-        self.static_lines = []
-        self.fig.tight_layout()
-        self.fig.subplots_adjust(top=0.80)
-        for label, ax, _, penalties in self.axis:
-            self.arrows.append([])
-            ax.clear()
-            self.lines += ax.plot([], [], '.', c='black', label="registration samples")
-
-            # The last step will have for reference a fusion of all scan except the last one, we then take the first iteration
-            descriptors_all_refs = self.dump[-1][0]["filtered_ref"]
-            # descriptors_read = self.dump[0]["filtered_read"]
-            #self.static_lines += self._plot_scan(ax, self.gt_poses[0].to_tf() @ descriptors_all_refs.numpy, color="black", descriptors=descriptors_all_refs)
-            for id, (scan, gt_pose, color) in enumerate(zip(self.scans, self.gt_poses, self.SCANS_ID_TO_COLOR)):
-                self.static_lines += self._plot_scan(ax, scan, gt_pose, f"Scan #{id}", color)
-
-            # self.static_lines += self._plot_scan(ax, self.read, self.move, "Read", color, descriptors=descriptors_read)
-            # self.static_lines += self._plot_map(ax, self.walls)
-
-            for penalty in penalties:
-                self.static_lines += draw_elipse(ax, penalty.translation, penalty.cov, color='green', label='Penalties covariance')
-
-            ax.set_title(label)
-            ax.axis('equal')
-            ax.set_xlim(-3.5, 3.5)
-            ax.set_ylim(-9, 9)
-            ax.legend(loc='lower right')
-
-        return self.lines + self.static_lines
-
     def update(self, i):
         self.fig.suptitle(f"Iter {i:02} - {self.title} \n Distribution of registration in a simulated corridor ")
         for exp_plot in self.exp_plots:
             exp_plot.update(i)
         return self.static_lines + self.lines
-
-
-    def update_old(self, i):
-        self.fig.suptitle(f"Iter {i:02} - {self.title} \n Distribution of registration in a simulated corridor ")
-        for (label, ax, trajectories, _), line, arrow in zip(self.axis, self.lines, self.arrows):
-            # Each sample is a trajectory
-            for trajectory in trajectories:
-                x = []
-                y = []
-                # A trajectory is made of step, which content iterations
-                for j, steps in enumerate(trajectory):
-                    max_iter_sample = len(steps)
-                    iter = steps[min(max_iter_sample-1, i)] # A registration might end before the i-th iteration
-                    tf = iter["tf"]
-                    xi = tf[0, 2]
-                    yi = tf[1, 2]
-                    th = acos(tf[0, 0])
-                    x.append(xi)
-                    y.append(yi)
-                    raw_arrow = Arrow(xi, yi, cos(th), sin(th), width=0.1, color='black')
-                    if len(arrow) <= j:
-                        arrow.append(ax.add_patch(raw_arrow))
-                    else:
-                        arrow[j].remove()
-                        arrow[j] = ax.add_patch(raw_arrow)
-                line.set_data(x, y)
-            ax.axis('equal')
-        return self.lines + self.static_lines
 
     def save(self, filename):
         self.func_ani.save(filename, dpi=80, writer='imagemagick')

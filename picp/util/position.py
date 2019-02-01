@@ -75,6 +75,15 @@ class Position:
     def flip_x(self):
         return Position(-self.x, self.y)
 
+    def dot(self, other: 'Position'):
+        return self.x * other.x + self.y * other.y
+
+    def smallest_angle_with(self, other: 'Position'):
+        return m.acos(self.dot(other) / self.norm / other.norm)
+
+    def perpendicular(self):
+        return Position(-self.y, self.x)
+
     def __add__(self, other: 'Position') -> 'Position':
         return Position.from_array(self.array + other.array)
 
@@ -115,7 +124,7 @@ class Position:
         return 'Position' + str(self)
 
     def __str__(self) -> str:
-        return '({:8.3f}, {:8.3f})'.format(self.x, self.y)
+        return '({:8.4f}, {:8.4f})'.format(self.x, self.y)
 
     def __hash__(self) -> int:
         return hash(str(self))

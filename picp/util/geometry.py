@@ -45,6 +45,9 @@ def normalize(vec: Position) -> Position:
         raise ZeroDivisionError
     return vec.copy() / vec.norm
 
+def wrap_to_pi(angle: float) -> float:
+    return (angle + m.pi) % (2 * m.pi) - m.pi
+
 def projection(reference: Position, start: Position, end: Position) -> float:
     start_to_end = normalize(end - start)
     start_to_reference = reference - start
@@ -66,12 +69,26 @@ def closest_point_on_segment(reference: Position, start: Position, end: Position
     else:
         return closest_point_on_line(reference, start=start, end=end)
 
+# def intersection_between_ray_and_segment(r_origin: Position, r_dir: Position, a: Position, b: Position):
+#     # Notation based on https://rootllama.wordpress.com/2014/06/20/ray-line-segment-intersection-test-in-2d/
+#     v1 = a - r_origin
+#     v2 = b - a
+#     v3 = normalize(r_dir).perpendicular()
+#
+#     t2 = v1.dot(v3) / v2.dot(v3)
+#     if 0 <= t2 <= 1:
+#         return a + t2 * v2
+#     return None
+
+
 def intersection_between_segments(a1: Position, a2: Position, b1: Position, b2: Position) -> Optional[Position]:
-    angle_1 = (b1-a1).angle
-    angle_2 = (b2-a1).angle
-    target_angle = (a2-a1).angle
-    if target_angle >= max(angle_1, angle_2) or min(angle_1, angle_2) >= target_angle:
-        return None
+    # We check if a ray a line would intersect the segment
+    # a = a2-a1
+    # ba1 = b1-a1
+    # ba2 = b2-a1
+    # interior_angle = b1.smallest_angle_with(b2)
+    # if a.smallest_angle_with(ba1) > interior_angle and a.smallest_angle_with(ba2) > interior_angle:
+    #     return None
     try:
         inter = intersection_between_lines(a1, a2, b1, b2)
     except ValueError:

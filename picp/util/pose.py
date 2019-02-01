@@ -104,7 +104,10 @@ class Pose:
         return not self.__eq__(other)
 
     def __str__(self) -> str:
-        return f'{self.position}, orientation = {self.orientation:5.3f}'
+        return f'{self.position}, orientation = {self.orientation:5.4f}'
 
     def __repr__(self) -> str:
         return self.__class__.__name__ + str(self)
+
+    def __hash__(self) -> int:
+        return hash(str(self))

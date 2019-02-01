@@ -35,7 +35,12 @@ def icp_mapping_with_random_perturbation(icp: ICP, scans: List[DataPoints], gt_t
     return trajectories
 
 
-def icp_mapping(icp: ICP, scans: List[DataPoints], gt_tfs: List[np.ndarray],  pertur_cov: np.ndarray=None, penalties: List[Penalty]=[],
+def apply_tf_on_scan(tf: np.ndarray, scan: np.ndarray):
+    moved_scan = tf @ make_homogeneous(scan)
+    return moved_scan[0:2, :]  # Remove homogeneous
+
+
+def icp_mapping(icp: ICP, scans: List[np.ndarray], gt_tfs: List[Pose],  pertur_cov: np.ndarray=None, penalties: List[Penalty]=[],
                 update_map_with_gt=False):
     steps = []
     if pertur_cov is None:
@@ -47,11 +52,11 @@ def icp_mapping(icp: ICP, scans: List[DataPoints], gt_tfs: List[np.ndarray],  pe
     between_scan_tfs = [curr.to_tf() @ np.linalg.inv(prev.to_tf()) for prev, curr in zip(gt_tfs, gt_tfs[1:])]
 
     # The first scan is always the map
-    map = scans[0].copy()
+    map = apply_tf_on_scan(gt_tfs[0].to_tf(), scans[0])
     prev_tf = gt_tfs[0]
+    steps.append((gt_tfs[0], {}))
     for i, (read, between_scan_tf, penalty) in enumerate(zip(scans[1:], between_scan_tfs, penalties[1:])):
         pertu = generate_tf_mat(perturbations[i, 0:2], perturbations[i, 2])
-
 
         # `prev_tf` is in the global frame, its the registration result of the previous pair of scans.
         init_tf = between_scan_tf @ prev_tf.to_tf() @ pertu
@@ -65,10 +70,11 @@ def icp_mapping(icp: ICP, scans: List[DataPoints], gt_tfs: List[np.ndarray],  pe
 
         # This flag used the ground truth to assemble the map instead of the registration results
         if update_map_with_gt:
-            moved_read = gt_tfs[i+1].to_tf() @ make_homogeneous(read)
+            moved_read = apply_tf_on_scan(gt_tfs[i+1].to_tf(), read)
             prev_tf = gt_tfs[i+1]
         else:
-            moved_read = tf @ make_homogeneous(read)
+            moved_read = apply_tf_on_scan(tf, read)
             prev_tf = so2_tf
-        map = np.hstack((map, moved_read[0:2, :]))
+            # prev_tf.orientation = gt_tfs[i+1].orientation # Ignore rotation results
+        map = np.hstack((map, moved_read))
     return steps

@@ -1,4 +1,5 @@
 import collections
+from math import cos, sin
 
 from picp.util.pose import Pose
 from picp.util.position import Position
@@ -22,6 +23,12 @@ class Wall:
 
     def copy(self):
         return Wall(self.p1.copy(), self.p2.copy())
+
+    def __str__(self):
+        return f"p1:{self.p1}, p2:{self.p2}"
+
+    def __hash__(self):
+        return hash(str(self))
 
 
 def create_basic_hallway(orientation=0):
@@ -59,7 +66,7 @@ def print_grid(grid):
         print()
 
 def find_shortest_path(ascii_art, a, b):
-    # Basic burning bush algorithm
+    # Basic burning bush pathfinder
     for n in NUMBERS:
         ascii_art = ascii_art.replace(n, '.')
 
@@ -114,6 +121,7 @@ def find_shortest_path(ascii_art, a, b):
 
 
 def subsample_path(path):
+    # Add a point between each point in path
     for (ax, ay), (bx, by) in zip(path, path[1:]):
         yield (ax, ay)
         yield (0.5 * (bx - ax) + ax,
@@ -121,8 +129,10 @@ def subsample_path(path):
     yield path[-1]
 
 
-def from_ascii_art(ascii_art):
+def from_ascii_art(ascii_art, origin_offset=None, orientation=0):
     print(ascii_art)
+    if origin_offset is None:
+        origin_offset = Position()
     grid = [[c for c in l] for l in ascii_art.splitlines()]
     cardinals = [(-1, 0), (0, -1)]
     w = len(grid[0])
@@ -152,10 +162,12 @@ def from_ascii_art(ascii_art):
 
     ox, oy = origin
 
-    def to_real_world(x, y, offset=0.4):
-        x -= ox + offset
-        y -= oy + offset
-        return x * cell_w, y * cell_h
+    def to_real_world(cell_x, cell_y, offset=0.4):
+        ax = (cell_x - ox - offset) * cell_w
+        ay = (cell_y - oy - offset) * cell_h
+        x = ax * cos(orientation) - ay * sin(orientation)
+        y = ax * sin(orientation) + ay * cos(orientation)
+        return x + origin_offset.x, y + origin_offset.y
 
     cell_w = 3
     cell_h = -3  # Matplotlib has the origin in the lower left corner, not the upper left conner
@@ -174,6 +186,6 @@ def from_ascii_art(ascii_art):
         for a, b in zip(ordered_checkpoints, ordered_checkpoints[1:]):
             path += find_shortest_path(ascii_art, a, b)
     path = subsample_path(path)
-    path = subsample_path(list(path))
-    pose_path = [Pose.from_values(*to_real_world(x, y, offset=0.0), 0) for x, y in path]
+    # path = subsample_path(list(path))
+    pose_path = [Pose.from_values(*to_real_world(x, y, offset=0.0), orientation) for x, y in path]
     return walls, pose_path
