@@ -55,7 +55,12 @@ def icp_mapping(icp: ICP, scans: List[np.ndarray], gt_tfs: List[Pose],  pertur_c
     map = apply_tf_on_scan(gt_tfs[0].to_tf(), scans[0])
     prev_tf = gt_tfs[0]
     steps.append((gt_tfs[0], {}))
-    for i, (read, between_scan_tf, penalty) in enumerate(zip(scans[1:], between_scan_tfs, penalties[1:])):
+    for i, (read, between_scan_tf) in enumerate(zip(scans[1:], between_scan_tfs)):
+        # This handle the case where no penalties have been provided
+        try:
+            penalty = penalties[i + 1]
+        except IndexError:
+            penalty = []
         pertu = generate_tf_mat(perturbations[i, 0:2], perturbations[i, 2])
 
         # `prev_tf` is in the global frame, its the registration result of the previous pair of scans.

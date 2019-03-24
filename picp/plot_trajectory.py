@@ -15,22 +15,28 @@ from pypm.icp import ICP, Penalty
 from picp.util.position import Position
 
 
-def icp_covariance(knn=5):
-    conf = ICP.BASIC_CONFIG.copy()
-    conf['transformationCheckers'][0]['CounterTransformationChecker']['maxIterationCount'] = 40
-    sensor_noise = lambda cov: [
-        {"SimpleSensorNoiseDataPointsFilter": {"sensorType": 0,  # For LMS-150
-                                               "covariance": cov}}
-    ]
-    discretisation_est = [{"SurfaceCovarianceDataPointsFilter": {"knn": knn}},
-                          {"DecomposeCovarianceDataPointsFilter": {"keepNormals": 0}}
-                          ]
-    conf["readingDataPointsFilters"] = sensor_noise(0)
-    conf["referenceDataPointsFilters"] = sensor_noise(1) + discretisation_est
-    conf["outlierFilters"] = [{"SensorNoiseOutlierFilter": {}}]
-    conf["errorMinimizer"] = {"PointToPointWithPenaltiesErrorMinimizer": {"confidenceInPenalties": 0.5}}
-    return conf
+# def icp_covariance(knn=5):
+#     conf = ICP.BASIC_CONFIG.copy()
+#     conf['transformationCheckers'][0]['CounterTransformationChecker']['maxIterationCount'] = 40
+#     sensor_noise = lambda cov: [
+#         {"SimpleSensorNoiseDataPointsFilter": {"sensorType": 0,  # For LMS-150
+#                                                "covariance": cov}}
+#     ]
+#     discretisation_est = [{"SurfaceCovarianceDataPointsFilter": {"knn": knn}},
+#                           {"DecomposeCovarianceDataPointsFilter": {"keepNormals": 0}}
+#                           ]
+#     conf["readingDataPointsFilters"] = sensor_noise(0)
+#     conf["referenceDataPointsFilters"] = sensor_noise(1) + discretisation_est
+#     conf["outlierFilters"] = [{"SensorNoiseOutlierFilter": {}}]
+#     conf["errorMinimizer"] = {"PointToPointWithPenaltiesErrorMinimizer": {"confidenceInPenalties": 0.5}}
+#     return conf
 
+def icp_p_to_gaussian(knn=5):
+    base_builder = ConfigBuilder()#.add_outlier_filter_trim()
+    p2gauss = base_builder.copy().with_point_to_gaussian() \
+        .add_sensor_noise_to_read() \
+        .add_sensor_noise_to_ref(generate_cov=True).add_cov_to_ref(knn).add_decompose_cov_to_ref()
+    return p2gauss.build()
 
 art = """XXXXX
 XXXXX
@@ -88,15 +94,16 @@ if __name__ == "__main__":
     penalties_xy3 = [from_cov_pose_to_penalties(p, np.array([[1e-3, 0.00],
                                                             [0, 1e-3]])) for p in poses]
 
-    base_builder = ConfigBuilder().add_outlier_filter_trim()
+    base_builder = ConfigBuilder().add_outlier_filter_trim(overlap=0.95)
     p2plane = base_builder.copy().with_point_to_plane().add_normal_to_ref()
     p2gauss = base_builder.copy().with_point_to_gaussian()\
         .add_sensor_noise_to_read()\
         .add_sensor_noise_to_ref(generate_cov=True).add_cov_to_ref().add_decompose_cov_to_ref()
 
-    # p2p_with_cov = base_builder.copy().with_point_to_point()\
-    #     .add_sensor_noise_to_read()\
-    #     .add_sensor_noise_to_ref(generate_cov=True).add_cov_to_ref().add_decompose_cov_to_ref()
+    # For ploting the final map
+    p2p_with_cov = base_builder.copy().with_point_to_point()\
+        .add_sensor_noise_to_read()\
+        .add_sensor_noise_to_ref(generate_cov=True).add_cov_to_ref().add_decompose_cov_to_ref()
 
     experiments = [
         # ("With penalty in x", icp_p_to_gaussian(), penalties_x),
@@ -119,7 +126,7 @@ if __name__ == "__main__":
         icp.enable_dump(tf=True)
         trajectories = icp_mapping_with_random_perturbation(icp, scans, gt_tfs=poses, nb_sample=15, pertur_cov=pertur_cov, penalties=penalties)
         experiments_res[label] = (trajectories, penalties)
-        print(f"The test '{label}' tooks {time.time()-start:0.3f}s")
+        print(f"The test '{label}' took {time.time()-start:0.3f}s")
 
     # To extract the sensor noise I do one registration with a dump of the descriptors
     icp.load_from_dict(p2p_with_cov.build())

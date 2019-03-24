@@ -1,8 +1,9 @@
 import numpy as np
 from pypm import ICP
 
-from picp.main import icp_config
-from picp.simulator.maps import create_basic_hallway
+from picp.main import icp_config, art
+from picp.plot_trajectory import icp_p_to_gaussian
+from picp.simulator.maps import create_basic_hallway, from_ascii_art
 from picp.simulator.scan_generator import ScanGenerator
 from picp.util.pose import Pose
 import matplotlib.pyplot as plt
@@ -32,25 +33,36 @@ def icp_covariance(knn=5):
     return conf
 
 
-def icp_p_to_gaussian(knn=5):
-    conf = icp_covariance(knn=knn)
-    conf["errorMinimizer"] = {"PointToGaussianErrorMinimizer": {}}
-    return conf
-
+# def icp_p_to_gaussian(knn=5):
+#     conf = icp_covariance(knn=knn)
+#     conf["errorMinimizer"] = {"PointToGaussianErrorMinimizer": {}}
+#     return conf
 
 
 if __name__ == "__main__":
-    origin = Pose()
-    orientation = np.deg2rad(55)
-
-    walls = create_basic_hallway(orientation)
+    # origin = Pose()
+    # orientation = np.deg2rad(55)
+    #
+    # walls = create_basic_hallway(orientation)
+    # sg = ScanGenerator(walls, nb_beam=180)
+    # ref = sg.generate(origin).transpose()
+    orientation = np.deg2rad(0)
+    walls, poses = from_ascii_art(art, orientation=orientation)
     sg = ScanGenerator(walls, nb_beam=180)
-    ref = sg.generate(origin).transpose()
+    print("Generating map...")
+
+    ref = sg.generate(poses[0], check_cache=True).transpose()
+
     # ref = np.array([[5, 5]])
     max_v = 20
-    experiments = [("P2Gaussian knn=10", icp_p_to_gaussian(knn=10), max_v),
-                   ("P2Gaussian knn=20", icp_p_to_gaussian(knn=20), max_v),
-                   ("P2Gaussian knn=30", icp_p_to_gaussian(knn=30), max_v)
+    # experiments = [("P2Gaussian knn=10", icp_p_to_gaussian(knn=10), max_v),
+    #                ("P2Gaussian knn=20", icp_p_to_gaussian(knn=20), max_v),
+    #                ("P2Gaussian knn=30", icp_p_to_gaussian(knn=30), max_v)
+    #               ]
+    experiments = [
+                    ("P2Gaussian knn=5", icp_p_to_gaussian(knn=5), max_v),
+                    ("P2Gaussian knn=10", icp_p_to_gaussian(knn=10), max_v),
+                    ("P2Gaussian knn=20", icp_p_to_gaussian(knn=20), max_v)
                   ]
 
     # experiments = [("P2Point", ICP.BASIC_CONFIG, 7),
@@ -67,7 +79,7 @@ if __name__ == "__main__":
         icp.load_from_dict(config)
         print(f"Computing `{label}` max_val:`{max_value}`")
         nb_sample = 300
-        residuals = icp.compute_residual_function(ref, [-7, -7], [7, 7], nb_sample)
+        residuals = icp.compute_residual_function(ref, [-8, -3], [13, 4], nb_sample)
         # residuals = icp.compute_residual_function(ref, [-4, -4], [4, 4], 100)
         min_value = 0
 

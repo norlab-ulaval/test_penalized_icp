@@ -64,7 +64,7 @@ public:
 	std::map<std::string, std::vector<double>> stats;
 
 	InMemoryInspector(const Parameters& params);
-    // TODO: Add a way to enable/disable the dumping of each of those field
+
 	virtual void dumpIteration(const size_t iterationNumber,
                                const TransformationParameters& parameters,
                                const DataPoints& filteredReference,

@@ -156,11 +156,12 @@ class AnimatedRegistration:
             self.lines += exp_plot.lines
             self.static_lines += exp_plot.static_lines
             # The last step will have for reference a fusion of all scan except the last one, we then take the first iteration
-            # descriptors_all_refs = self.dump[-1][0]["filtered_ref"]
+            descriptors_all_refs = self.dump[-1][0]["filtered_ref"]
             # descriptors_read = self.dump[0]["filtered_read"]
-            # self.static_lines += self._plot_scan(ax, self.gt_poses[0].to_tf() @ descriptors_all_refs.numpy, color="black", descriptors=descriptors_all_refs)
+            self.static_lines += self._plot_scan(exp_plot.ax, self.gt_poses[0].to_tf() @ descriptors_all_refs.numpy, color="black", descriptors=descriptors_all_refs)
             for id, (scan, gt_pose, color) in enumerate(zip(self.scans, self.gt_poses, cycle(SCANS_ID_TO_COLOR))):
                 self.static_lines += self._plot_scan(exp_plot.ax, scan, gt_pose, f"Scan #{id}", color)
+
             # exp_plot.ax.legend(loc='upper left')
         return self.static_lines + self.lines
 
